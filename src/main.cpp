@@ -19,7 +19,7 @@ const int preamble_length = 20;
 // flag to indicate that a packet was received
 volatile bool receivedFlag = false;
 volatile bool transmittedFlag = false;
-
+volatile bool checkFlag= false;
 // this function is called when a complete packet
 // is received by the module
 // IMPORTANT: this function MUST be 'void' type
@@ -31,11 +31,10 @@ volatile bool transmittedFlag = false;
 void setFlag(void) {
   // we got a packet, set the flag
   receivedFlag = true;
-  static long lastAction2 = 0;
-  if(millis() - lastAction2 >= 3000) {
-    lastAction2 = millis();
-    Serial.println("SetFlag called");
-  }
+  checkFlag = true;
+  // if(millis() - lastAction2 >= 3000) {
+  //   lastAction2 = millis();
+  //}
 }
 
 
@@ -79,11 +78,7 @@ void setup() {
   display.init();
   display.clear();
   display.flipScreenVertically();
-  display.setFont(ArialMT_Plain_10);
-  if(receivedFlag) {
-    Serial.println("[RX] Received packet!");}
-  if (!receivedFlag) {
-    Serial.println("[RX] No packet received!");}  
+  display.setFont(ArialMT_Plain_10);    
 }
 
 void monitor(int State) {
@@ -134,10 +129,10 @@ int transmissionState = RADIOLIB_ERR_NONE;
 
 String Recive(){
   String msg;int len = 0;
-  if(receivedFlag) {
+  if(receivedFlag==1) {
     // reset flag
     receivedFlag = false;
-    int state = radio.readData(msg); // Chờ tối đa 2s để nhận msg
+    int state = radio.readData(msg);    
     if (state == RADIOLIB_ERR_NONE) {
       if(msg != ""){
         Serial.println("Data received: " + msg);
@@ -147,8 +142,7 @@ String Recive(){
         showOled(msg);
         // Gửi ACK lại cho master
       }
-      // put module back to listen mode
-      radio.startReceive();
+      
     }
     else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
         // packet was received, but is malformed
@@ -158,8 +152,11 @@ String Recive(){
       // Serial.print(F("failed, code 3 "));
       // Serial.println(state);
     }
+    // put module back to listen mode
+    radio.startReceive();
     return msg;
   }
+  return "";
 }
 
 void SendData(String data) {
@@ -187,20 +184,25 @@ if(transmittedFlag) {
 }
 
 void loop() {
+  if(checkFlag)
+    {
+      checkFlag = false;
+      Serial.println("SetFlag checked");
+    }  
   static long lastAction = 0;
-  if(millis() - lastAction >= 3000) {
+  if(millis() - lastAction >= 500) {
     lastAction = millis();
-    Serial.println("loop ");
+    Serial.println("loop " + String(receivedFlag));
   }
-  
-  if(Recive() == " Hello"){
-    Serial.println("Data: Hello"); 
-    int ackState = radio.transmit("ACK");
-    if (ackState == RADIOLIB_ERR_NONE) {
-      Serial.println("[RX] Sent ACK!");
-    } else {
-      Serial.print("[RX] Failed to send ACK, code ");
-      Serial.println(ackState);
-    }
-  }
+  Recive();
+  // if(Recive() == " Hello"){
+  //   Serial.println("Data: Hello"); 
+  //   int ackState = radio.transmit("ACK");
+  //   if (ackState == RADIOLIB_ERR_NONE) {
+  //     Serial.println("[RX] Sent ACK!");
+  //   } else {
+  //     Serial.print("[RX] Failed to send ACK, code ");
+  //     Serial.println(ackState);
+  //   }
+  // }
 }
