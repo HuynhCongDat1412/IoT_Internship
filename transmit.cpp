@@ -19,8 +19,18 @@ const uint8_t sync_word = 0x12;
 const int output_power = 2;
 const int preamble_length = 20;
 
-enum State { IDLE, WAIT_TRANSMIT_DONE,SEND_MAIN, WAIT_BEFORE_LISTEN, SEND_LISTEN, WAIT_ACK, ACK_RECEIVED  };
-State masterState = IDLE;
+enum State {
+  SEND_MAIN,
+  WAIT_LISTEN_MAIN,
+  SEND_LISTEN,
+  WAIT_TRANSMIT_DONE,
+  WAIT_ACK,
+  WAIT_SEND_MAIN_AGAIN,
+  WAIT_LISTEN_ACK,
+  ACK_RECEIVED,
+  WAIT_BEFORE_LISTEN
+};
+State masterState = SEND_MAIN;
 uint32_t lastAction = 0;
 bool ackReceived = false; // Biến kiểm tra đã nhận ACK chưa
 
@@ -30,7 +40,7 @@ int transmissionState = RADIOLIB_ERR_NONE;
 // flag to indicate that a packet was sent
 volatile bool receivedFlag = false;
 volatile bool transmittedFlag = false;
-
+void SendData(String data);
 // this function is called when a complete packet
 // is transmitted by the module
 // IMPORTANT: this function MUST be 'void' type
@@ -86,6 +96,7 @@ void checksettings(){
   Serial.println(F("All settings succesfully changed!"));
 }
 
+
 void setup() {
   Serial.begin(115200);
   delay(2000);
@@ -117,21 +128,26 @@ void setup() {
 
 String Recive(){
   String msg;int len = 0;
-  if(receivedFlag) {
+  if(receivedFlag==1) {
     // reset flag
     receivedFlag = false;
-    int state = radio.receive(msg, len);
+    int state = radio.readData(msg);    
     if (state == RADIOLIB_ERR_NONE) {
-      Serial.println("Data received: " + msg);
-      strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
-      strip.show();
-      if(msg != ""){
-        // monitor(state);
-        // showOled(msg);
-        // Gửi ACK lại cho master
-      }
-      // put module back to listen mode
-      radio.startReceive();
+      if(msg != "" ){
+        Serial.println("Data received: " + msg);
+          strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
+          strip.show();
+        if(msg == "need ACK"){
+          // Gửi ACK lại cho master
+          transmittedFlag = true;
+          SendData("ACK");
+        }
+      }        
+        else{
+          Serial.println("Data received: NONE" + msg);
+          strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+          strip.show();
+        }      
     }
     else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
         // packet was received, but is malformed
@@ -141,8 +157,11 @@ String Recive(){
       // Serial.print(F("failed, code 3 "));
       // Serial.println(state);
     }
+    // put module back to listen mode
+    radio.startReceive();
     return msg;
   }
+  return "NONE1";
 }
 
 void SendData(String data) {
@@ -157,6 +176,7 @@ void SendData(String data) {
     }
     radio.finishTransmit();     
     transmissionState = radio.startTransmit(data);
+
     if (transmissionState == RADIOLIB_ERR_NONE) {
       // packet was successfully sent
       Serial.println("[TX] Sending data. : " + data);
@@ -165,30 +185,72 @@ void SendData(String data) {
       Serial.print(F("failed, code "));
       Serial.println(transmissionState);
   }
-  strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
-  strip.show();
-}
+    strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+    strip.show();
+  }
 }
 bool send = false;
-
+String msg;
 void loop() {
   static String mainMsg = " Hello";
   static int retryCount = 0;
-  if (millis() - lastAction >= 2000) { // Đợi 2s
-    lastAction = millis();
-    send = true;
-    transmittedFlag = true;
-    receivedFlag = false;
-  }
+  switch (masterState) {
+    case SEND_MAIN:
+      static long lastAction1 = 0;
+      transmittedFlag = true;
+      if (millis() - lastAction1 >= 500) { // Đợi 2s
+        lastAction1 = millis();
+        SendData(mainMsg);
+      }
+      static long lastAction2 = 0;
+      if (millis() - lastAction2 >= 1500) { // Đợi 2s
+        lastAction2 = millis();
+        masterState = SEND_LISTEN;
+      }
+      //Serial.println("Sending main message: " + mainMsg);
+      strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+      strip.show();
+      break;
+    case SEND_LISTEN:
+      transmittedFlag = true;
+      SendData("need ACK");
+      masterState = WAIT_TRANSMIT_DONE;
+      break;
+    case WAIT_TRANSMIT_DONE:
+      if (transmittedFlag) {  
+        transmittedFlag = false;
+        radio.finishTransmit();
+        radio.startReceive(); // Chỉ gọi sau khi truyền xong!
+        masterState = WAIT_LISTEN_ACK;
+      }
+      break;
+    case WAIT_LISTEN_ACK:
+      //receivedFlag = true;
+      static long lastAction4 = 0;
 
-  if(send){
-    SendData(mainMsg);
-    send = false;
-    transmittedFlag = false;
-    receivedFlag = true;
+      receivedFlag = true;
+      msg = Recive();
+      if(millis() - lastAction4 >= 3000) {
+        lastAction4 = millis();
+        Serial.println("Waiting for ACK...");
+        Serial.println("Received: " + msg);
+      }
+      static long lastAction3 = 0;
+      if (msg == "ACK") {
+        Serial.println("ACK received");
+        ackReceived = true;
+        masterState = ACK_RECEIVED;
+      } 
+      else if (millis() - lastAction3 >= 1000) {
+        lastAction3 = millis();
+        transmittedFlag = true;
+        //masterState = SEND_MAIN;
+      }
+      break;
+    case ACK_RECEIVED:
+      strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
+      strip.show();
+      // Gửi lại dữ liệu
+      break;
   }
-  // else{
-  //   Recive();
-  // }
-
 }

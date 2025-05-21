@@ -41,6 +41,7 @@ void setFlag(void) {
 // Khởi tạo màn hình OLED (I2C), SDA = 7, SCL = 15
 SSD1306Wire display(0x3C, 7, 15);
 
+String Msg = ""; // Lưu tin nhắn trước đó
 String lastMsg = ""; // Lưu tin nhắn trước đó
 
 void setup() {
@@ -126,6 +127,7 @@ uint32_t count = 0; // Biến đếm gửi tin nhắn
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 int transmissionState = RADIOLIB_ERR_NONE;
+void SendData(String data);
 
 String Recive(){
   String msg;int len = 0;
@@ -134,15 +136,25 @@ String Recive(){
     receivedFlag = false;
     int state = radio.readData(msg);    
     if (state == RADIOLIB_ERR_NONE) {
-      if(msg != ""){
+      if(msg != "" ){
         Serial.println("Data received: " + msg);
-        strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
-        strip.show();
-        monitor(state);
-        showOled(msg);
-        // Gửi ACK lại cho master
-      }
-      
+          strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
+          strip.show();
+        if(msg != "need ACK"){
+          showOled(msg);
+        }
+        else if(msg == "need ACK"){
+          // Gửi ACK lại cho master
+          transmittedFlag = true;
+          SendData("ACK");
+          Serial.println("ACK sent");
+        }
+      }        
+        else{ 
+          Serial.println("Data received: NONE" + msg);
+          strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+          strip.show();
+        }      
     }
     else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
         // packet was received, but is malformed
@@ -160,49 +172,36 @@ String Recive(){
 }
 
 void SendData(String data) {
-if(transmittedFlag) {
-  Serial.println("[TX] Sending data. : " + data);
+  if(transmittedFlag) {
     // reset flag
     transmittedFlag = false;
-
     if (transmissionState == RADIOLIB_ERR_NONE) {
-      // packet was successfully sent
-      Serial.println(F("transmission finished!"));
-
+      // packet was successfully sent      
     } else {
       Serial.print(F("failed, code "));
       Serial.println(transmissionState);
-
     }
-    radio.finishTransmit();
-    delay(1000);
+    radio.finishTransmit();     
     transmissionState = radio.startTransmit(data);
 
+    if (transmissionState == RADIOLIB_ERR_NONE) {
+      // packet was successfully sent
+      Serial.println("[TX] Sending data. : " + data);
+      Serial.println(F("transmission finished!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(transmissionState);
   }
-  strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
-  strip.show();
+    strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+    strip.show();
+  }
 }
 
 void loop() {
-  if(checkFlag)
-    {
-      checkFlag = false;
-      Serial.println("SetFlag checked");
-    }  
   static long lastAction = 0;
-  if(millis() - lastAction >= 500) {
-    lastAction = millis();
-    Serial.println("loop " + String(receivedFlag));
+  Msg = Recive();
+  if (Msg != "" && Msg != lastMsg) {
+    lastMsg = Msg;
+    Serial.println("last Data received: " + lastMsg);
   }
-  Recive();
-  // if(Recive() == " Hello"){
-  //   Serial.println("Data: Hello"); 
-  //   int ackState = radio.transmit("ACK");
-  //   if (ackState == RADIOLIB_ERR_NONE) {
-  //     Serial.println("[RX] Sent ACK!");
-  //   } else {
-  //     Serial.print("[RX] Failed to send ACK, code ");
-  //     Serial.println(ackState);
-  //   }
-  // }
 }
