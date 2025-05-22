@@ -43,6 +43,7 @@ SSD1306Wire display(0x3C, 7, 15);
 
 String Msg = ""; // Lưu tin nhắn trước đó
 String lastMsg = ""; // Lưu tin nhắn trước đó
+static bool acktransmitFlag = false;
 
 void setup() {
   Serial.begin(115200);
@@ -145,11 +146,28 @@ String Recive(){
         }
         else if(msg == "need ACK"){
           // Gửi ACK lại cho master
-          transmittedFlag = true;
-          SendData("ACK");
-          Serial.println("ACK sent");
-        }
-      }        
+          if(acktransmitFlag == false) {
+            acktransmitFlag = true;
+            transmissionState = radio.startTransmit("ACK");
+            Serial.println("ACK sent");
+          }
+          if(acktransmitFlag == true) {
+            if(transmittedFlag){
+              transmittedFlag = false;
+              acktransmitFlag = false;
+              if (transmissionState == RADIOLIB_ERR_NONE) {
+                // packet was successfully sent      
+              } else {
+                Serial.print(F("failed, code "));
+                Serial.println(transmissionState);
+              }
+              radio.finishTransmit();
+              transmissionState = radio.startTransmit("ACK");
+              }
+              Serial.println("ACK2 sent");
+            }
+          }
+        }        
         else{ 
           Serial.println("Data received: NONE" + msg);
           strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ

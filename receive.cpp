@@ -1,10 +1,16 @@
 #include <Arduino.h>
-#include <Wire.h>
-#include "SSD1306Wire.h"
 #include <RadioLib.h>
+#include <Adafruit_NeoPixel.h>
 
 Module mod(39, 42, 40, 41, SPI);
 SX1280 radio(&mod);
+uint32_t count = 0; // Biến đếm gửi tin nhắn
+
+#define LED_PIN 48
+#define NUM_LEDS 1
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// Khởi tạo cho các tham số RF
 const float carrier_frequency = 2450.0;
 const float bandwidth = 1625.0;
 const int spreading_factor = 7;
@@ -12,120 +18,112 @@ const int coding_rate = 5;
 const uint8_t sync_word = 0x12;
 const int output_power = 2;
 const int preamble_length = 20;
-// Khởi tạo cho các tham số RF
 
+enum State {
+  SEND_MAIN,
+  WAIT_LISTEN_MAIN,
+  SEND_LISTEN,
+  WAIT_TRANSMIT_DONE,
+  WAIT_ACK,
+  WAIT_SEND_MAIN_AGAIN,
+  WAIT_LISTEN_ACK,
+  ACK_RECEIVED,
+  WAIT_BEFORE_LISTEN
+};
+State masterState = SEND_MAIN;
+bool ackReceived = false; // Biến kiểm tra đã nhận ACK chưa
 
+// save transmission state between loops
+int transmissionState = RADIOLIB_ERR_NONE;
 
-// flag to indicate that a packet was received
+// flag to indicate that a packet was sent
 volatile bool receivedFlag = false;
 volatile bool transmittedFlag = false;
-volatile bool checkFlag= false;
+void SendData(String data);
 // this function is called when a complete packet
-// is received by the module
+// is transmitted by the module
 // IMPORTANT: this function MUST be 'void' type
 //            and MUST NOT have any arguments!
 #if defined(ESP8266) || defined(ESP32)
   ICACHE_RAM_ATTR
 #endif
-
 void setFlag(void) {
-  // we got a packet, set the flag
-  receivedFlag = true;
-  checkFlag = true;
-  // if(millis() - lastAction2 >= 3000) {
-  //   lastAction2 = millis();
-  //}
+  // we sent a packet, set the flag
+  transmittedFlag = true;
 }
 
+void setRFlag(void) {
+  // we got a packet, set the flag
+  receivedFlag = true;
+  // Serial.println("setFlag called!");
+}
 
-// Khởi tạo màn hình OLED (I2C), SDA = 7, SCL = 15
-SSD1306Wire display(0x3C, 7, 15);
+void checksettings(){  
+  if (radio.setFrequency(carrier_frequency) == RADIOLIB_ERR_INVALID_FREQUENCY) {
+    Serial.println(F("Selected frequency is invalid for this module!"));
+    while (true) { delay(10); }
+  }
+  if (radio.setBandwidth(bandwidth) == RADIOLIB_ERR_INVALID_BANDWIDTH) {
+    Serial.println(F("Selected bandwidth is invalid for this module!"));
+    while (true) { delay(10); }
+  }
+  // set spreading factor to 10
+  if (radio.setSpreadingFactor(spreading_factor) == RADIOLIB_ERR_INVALID_SPREADING_FACTOR) {
+    Serial.println(F("Selected spreading factor is invalid for this module!"));
+    while (true) { delay(10); }
+  }
+  // set coding rate to 6
+  if (radio.setCodingRate(coding_rate) == RADIOLIB_ERR_INVALID_CODING_RATE) {
+    Serial.println(F("Selected coding rate is invalid for this module!"));
+    while (true) { delay(10); }
+  }
+  // set output power to -2 dBm
+  if (radio.setOutputPower(output_power) == RADIOLIB_ERR_INVALID_OUTPUT_POWER) {
+    Serial.println(F("Selected output power is invalid for this module!"));
+    while (true) { delay(10); }
+  }
+  // set LoRa preamble length to 16 symbols (accepted range is 2 - 65535)
+  if (radio.setPreambleLength(preamble_length) == RADIOLIB_ERR_INVALID_PREAMBLE_LENGTH) {
+    Serial.println(F("Selected preamble length is invalid for this module!"));
+    while (true) { delay(10); }
+  }
+  // disable CRC
+  if (radio.setCRC(false) == RADIOLIB_ERR_INVALID_CRC_CONFIGURATION) {
+    Serial.println(F("Selected CRC is invalid for this module!"));
+    while (true) { delay(10); }
+  }
+  Serial.println(F("All settings succesfully changed!"));
+}
 
-String lastMsg = ""; // Lưu tin nhắn trước đó
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
-
-  //------------------------Khoi tao RF
+  strip.begin();
+  strip.setPixelColor(0, strip.Color(0, 0, 0));
+  strip.show();
+  Serial.println("Initializing SX1280...");
   SPI.begin(36, 37, 35);
   // int state = radio.begin();
   int state = radio.begin(2450.0, 1625.0, 7, 5, 0x12, 2, 20);
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.println(F("success!"));
-  } else {
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    while (true) { delay(10); }
-  }
-  // set the function that will be called
-  // when new packet is received
-  radio.setPacketReceivedAction(setFlag);
-    // start listening for LoRa packets
-  Serial.print(F("[SX1280] Starting to listen ... "));
-  state = radio.startReceive();
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.println(F("success!"));
-  } else {
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    while (true) { delay(10); }
-  }
-
-  Serial.println(F("All settings succesfully changed!"));
-
-  //-----------------------------------------------------------khoi tao led
-  display.init();
-  display.clear();
-  display.flipScreenVertically();
-  display.setFont(ArialMT_Plain_10);    
-}
-
-void monitor(int State) {
-  // Print the current state of the radio
-  Serial.print("Radio State: ");
-  Serial.println(State);
-  Serial.print("Carrier Frequency: ");
-  Serial.print(carrier_frequency);
-  Serial.println(" MHz");
-  Serial.print("Bandwidth: ");
-  Serial.print(bandwidth);
-  Serial.println(" kHz");
-  Serial.print("Spreading Factor: ");
-  Serial.println(spreading_factor);
-  Serial.print("Coding Rate: ");
-  Serial.println(coding_rate);
-  Serial.print("Sync Word: ");
-  Serial.println(sync_word, HEX);
-}
-
-void showOled(String str) {
   
-    display.clear();
-    // Hiển thị thông số RF ở dòng đầu tiên
-    String rfInfo = "F:" + String(carrier_frequency, 1) + "MHz ";
-    //rfInfo += "BW:" + String(bandwidth, 1) + "kHz ";
-    //rfInfo += "SF:" + String(spreading_factor);
-    //rfInfo += " CR:" + String(coding_rate);
-    rfInfo += " SW:0x" + String(sync_word, HEX);
-    //rfInfo += " P:" + String(output_power) + "dBm";
-    display.drawString(0, 0, rfInfo);
-    display.drawString(0, 12, "Data: " + str);
-    display.drawString(0, 24, "RSSI: " + String(radio.getRSSI(), 1) + " dBm");
-    display.drawString(0, 36, "SNR: " + String(radio.getSNR(), 1) + " dB");
-    display.drawString(0, 48, "FreqErr: " + String(radio.getFrequencyError(), 1) + " Hz");
-    display.display();
+  if (state == RADIOLIB_ERR_NONE) {
+    Serial.println(F("success!"));
+  } else {
+    Serial.print(F("failed, code "));
+    Serial.println(state);
+    while (true) { delay(10); }
+  }
+
+  // set the function that will be called
+  // when packet transmission is finished
+  radio.setPacketSentAction(setFlag);
+  Serial.print(F("[SX1280] Sending first packet ... "));
+  transmissionState = radio.startTransmit("Hello World!");
+  checksettings();
+  // set bandwidth to 203.125 kHz
+  
 }
-
-#include <Adafruit_NeoPixel.h>
-
-uint32_t count = 0; // Biến đếm gửi tin nhắn
-
-#define LED_PIN 48
-#define NUM_LEDS 1
-Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
-
-int transmissionState = RADIOLIB_ERR_NONE;
 
 String Recive(){
   String msg;int len = 0;
@@ -134,15 +132,21 @@ String Recive(){
     receivedFlag = false;
     int state = radio.readData(msg);    
     if (state == RADIOLIB_ERR_NONE) {
-      if(msg != ""){
+      if(msg != "" ){
         Serial.println("Data received: " + msg);
-        strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
-        strip.show();
-        monitor(state);
-        showOled(msg);
-        // Gửi ACK lại cho master
-      }
-      
+          strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
+          strip.show();
+        if(msg == "need ACK"){
+          // Gửi ACK lại cho master
+          transmittedFlag = true;
+          SendData("ACK");
+        }
+      }        
+        else{
+          Serial.println("Data received: NONE" + msg);
+          strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+          strip.show();
+        }      
     }
     else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
         // packet was received, but is malformed
@@ -156,53 +160,151 @@ String Recive(){
     radio.startReceive();
     return msg;
   }
-  return "";
+  return "NONE1";
 }
 
 void SendData(String data) {
-if(transmittedFlag) {
-  Serial.println("[TX] Sending data. : " + data);
+  if(transmittedFlag) {
     // reset flag
     transmittedFlag = false;
-
     if (transmissionState == RADIOLIB_ERR_NONE) {
-      // packet was successfully sent
-      Serial.println(F("transmission finished!"));
-
+      // packet was successfully sent      
     } else {
       Serial.print(F("failed, code "));
       Serial.println(transmissionState);
-
     }
-    radio.finishTransmit();
-    delay(1000);
+    radio.finishTransmit();     
     transmissionState = radio.startTransmit(data);
 
+    if (transmissionState == RADIOLIB_ERR_NONE) {
+      // packet was successfully sent
+      Serial.println("[TX] Sending data. : " + data);
+      Serial.println(F("transmission finished!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(transmissionState);
   }
-  strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
-  strip.show();
+    strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+    strip.show();
+  }
 }
-
+bool send = false;
+String msg;
 void loop() {
-  if(checkFlag)
-    {
-      checkFlag = false;
-      Serial.println("SetFlag checked");
-    }  
-  static long lastAction = 0;
-  if(millis() - lastAction >= 500) {
-    lastAction = millis();
-    Serial.println("loop " + String(receivedFlag));
+  static String mainMsg = " Hello";
+  static int retryCount = 0;
+  switch (masterState) {
+    case SEND_MAIN:
+      static long lastAction1 = 0;
+      transmittedFlag = true;
+      if (millis() - lastAction1 >= 500) { // Đợi 2s
+        lastAction1 = millis();
+        SendData(mainMsg + String(count++));
+      }
+      
+      static long lastAction2 = 0;
+      if (millis() - lastAction2 >= 1500) { // Đợi 2s
+        lastAction2 = millis();
+        masterState = SEND_LISTEN;
+      }
+      //Serial.println("Sending main message: " + mainMsg);
+      strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
+      strip.show();
+      static long lastAction8 = 0;
+      if (millis() - lastAction8 >= 3000) { // Đợi 2s
+        lastAction8 = millis();
+        Serial.println("state = SEND_MAIN");
+      }
+      break;
+    case SEND_LISTEN:
+      if(transmittedFlag){
+        transmittedFlag = false;
+        radio.finishTransmit();
+        transmissionState = radio.startTransmit("need ACK");
+        masterState = WAIT_TRANSMIT_DONE;
+      }
+      static long lastAction3 = 0;
+      if (millis() - lastAction3 >= 3000) { // Đợi 2s
+        lastAction3 = millis();
+        Serial.println("state = SEND_LISTEN");
+      }
+      break;
+    case WAIT_TRANSMIT_DONE:
+      if (transmittedFlag) {
+        transmittedFlag = false;
+        radio.finishTransmit();
+        masterState = WAIT_LISTEN_ACK;
+      }
+      static long lastAction5 = 0;
+      if (millis() - lastAction5 >= 3000) { // Đợi 2s
+        lastAction5 = millis();
+        Serial.println("state = WAIT_TRANSMIT_DONE");
+      }
+      break;
+    case WAIT_LISTEN_ACK:
+      //receivedFlag = true;
+      static unsigned long ackWaitStart = 0;
+      static bool waitingForAck = false;
+      if (!waitingForAck) {
+        ackWaitStart = millis();
+        waitingForAck = true;
+        
+      }
+      if (receivedFlag) {
+        receivedFlag = false;
+        
+        String ack = Recive();
+        if(ack!="NONE1"){
+          Serial.println("Data received: " + ack);
+        }
+        else{
+          static long lastAction4 = 0;
+          if (millis() - lastAction4 >= 4000) { // Đợi 2s
+            lastAction4 = millis();
+            Serial.println("Data received: NONE2");
+          }
+          
+        } 
+        Serial.println("ACK: " + ack);
+        if (ack == "ACK") {
+          Serial.println("[TX] Received ACK!");
+          ackReceived = true;
+          retryCount = 0;
+          masterState = ACK_RECEIVED;
+          waitingForAck = false;
+          break;
+        }
+      }           
+      // Nếu quá thời gian chờ ACK
+      if (millis() - ackWaitStart > 2000) {
+        Serial.println("[TX] No ACK, retrying...");
+        retryCount++;
+        if (retryCount < 5) {
+          masterState = SEND_LISTEN;
+          transmittedFlag = true;
+        } else {
+          Serial.println("[TX] Failed to get ACK after 5 tries.");
+          //masterState = SEND_MAIN;
+          retryCount = 0;
+        }
+        waitingForAck = false;
+      }
+      static long lastAction6 = 0;
+      if (millis() - lastAction6 >= 3000) { // Đợi 2s
+        lastAction6 = millis();
+        Serial.println("state = WAIT_LISTEN_ACK");
+      }
+      break;
+  
+    case ACK_RECEIVED:
+      strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
+      strip.show();
+      static long lastAction7 = 0;
+      if (millis() - lastAction7 >= 3000) { // Đợi 2s
+        lastAction7 = millis();
+        Serial.println("state = ACK_RECEIVED");
+      }
+      // Gửi lại dữ liệu
+      break;
   }
-  Recive();
-  // if(Recive() == " Hello"){
-  //   Serial.println("Data: Hello"); 
-  //   int ackState = radio.transmit("ACK");
-  //   if (ackState == RADIOLIB_ERR_NONE) {
-  //     Serial.println("[RX] Sent ACK!");
-  //   } else {
-  //     Serial.print("[RX] Failed to send ACK, code ");
-  //     Serial.println(ackState);
-  //   }
-  // }
 }
