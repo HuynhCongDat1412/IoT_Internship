@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include "SSD1306Wire.h"
 #include <RadioLib.h>
+#include <Adafruit_NeoPixel.h>
 
 Module mod(39, 42, 40, 41, SPI);
 SX1280 radio(&mod);
@@ -13,13 +14,19 @@ const uint8_t sync_word = 0x12;
 const int output_power = 2;
 const int preamble_length = 20;
 // Khởi tạo cho các tham số RF
+uint32_t count = 0; // Biến đếm gửi tin nhắn
 
+#define LED_PIN 48
+#define NUM_LEDS 1
+int transmissionState = RADIOLIB_ERR_NONE;
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 
 // flag to indicate that a packet was received
 volatile bool receivedFlag = false;
 volatile bool transmittedFlag = false;
 volatile bool checkFlag= false;
+static bool mainFlag = false;
 // this function is called when a complete packet
 // is received by the module
 // IMPORTANT: this function MUST be 'void' type
@@ -80,7 +87,9 @@ void setup() {
   display.init();
   display.clear();
   display.flipScreenVertically();
-  display.setFont(ArialMT_Plain_10);    
+  display.setFont(ArialMT_Plain_10);   
+  strip.setPixelColor(0, strip.Color(0, 0, 0)); // LED xanh
+  strip.show(); 
 }
 
 void monitor(int State) {
@@ -119,15 +128,9 @@ void showOled(String str) {
     display.display();
 }
 
-#include <Adafruit_NeoPixel.h>
 
-uint32_t count = 0; // Biến đếm gửi tin nhắn
 
-#define LED_PIN 48
-#define NUM_LEDS 1
-Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-int transmissionState = RADIOLIB_ERR_NONE;
 void SendData(String data);
 
 String Recive(){
@@ -139,34 +142,10 @@ String Recive(){
     if (state == RADIOLIB_ERR_NONE) {
       if(msg != "" ){
         Serial.println("Data received: " + msg);
-          strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
-          strip.show();
-        if(msg != "need ACK"){
-          showOled(msg);
-        }
-        else if(msg == "need ACK"){
-          // Gửi ACK lại cho master
-          if(acktransmitFlag == false) {
-            acktransmitFlag = true;
-            transmissionState = radio.startTransmit("ACK");
-            Serial.println("ACK sent");
-          }
-          if(acktransmitFlag == true) {
-            if(transmittedFlag){
-              transmittedFlag = false;
-              acktransmitFlag = false;
-              if (transmissionState == RADIOLIB_ERR_NONE) {
-                // packet was successfully sent      
-              } else {
-                Serial.print(F("failed, code "));
-                Serial.println(transmissionState);
-              }
-              radio.finishTransmit();
-              transmissionState = radio.startTransmit("ACK");
-              }
-              Serial.println("ACK2 sent");
-            }
-          }
+        strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
+        strip.show();
+        showOled(msg);
+        
         }        
         else{ 
           Serial.println("Data received: NONE" + msg);
@@ -182,8 +161,7 @@ String Recive(){
       // Serial.print(F("failed, code 3 "));
       // Serial.println(state);
     }
-    // put module back to listen mode
-    radio.startReceive();
+
     return msg;
   }
   return "";
@@ -217,9 +195,16 @@ void SendData(String data) {
 
 void loop() {
   static long lastAction = 0;
-  Msg = Recive();
-  if (Msg != "" && Msg != lastMsg) {
-    lastMsg = Msg;
-    Serial.println("last Data received: " + lastMsg);
+
+  if(!mainFlag){
+    Msg = Recive();
+    if (Msg == " Hello")
+      {
+        mainFlag = true;
+      }
+  }
+  if (mainFlag){
+    int state = radio.transmit("ACK");
+    Serial.println("transmit again");
   }
 }
