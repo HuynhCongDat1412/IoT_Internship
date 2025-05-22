@@ -31,7 +31,6 @@ enum State {
   WAIT_BEFORE_LISTEN
 };
 State masterState = SEND_MAIN;
-uint32_t lastAction = 0;
 bool ackReceived = false; // Biến kiểm tra đã nhận ACK chưa
 
 // save transmission state between loops
@@ -200,8 +199,9 @@ void loop() {
       transmittedFlag = true;
       if (millis() - lastAction1 >= 500) { // Đợi 2s
         lastAction1 = millis();
-        SendData(mainMsg);
+        SendData(mainMsg + String(count++));
       }
+      
       static long lastAction2 = 0;
       if (millis() - lastAction2 >= 1500) { // Đợi 2s
         lastAction2 = millis();
@@ -210,46 +210,100 @@ void loop() {
       //Serial.println("Sending main message: " + mainMsg);
       strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
       strip.show();
+      static long lastAction8 = 0;
+      if (millis() - lastAction8 >= 3000) { // Đợi 2s
+        lastAction8 = millis();
+        Serial.println("state = SEND_MAIN");
+      }
       break;
     case SEND_LISTEN:
-      transmittedFlag = true;
-      SendData("need ACK");
-      masterState = WAIT_TRANSMIT_DONE;
-      break;
-    case WAIT_TRANSMIT_DONE:
-      if (transmittedFlag) {  
+      if(transmittedFlag){
         transmittedFlag = false;
         radio.finishTransmit();
-        radio.startReceive(); // Chỉ gọi sau khi truyền xong!
+        transmissionState = radio.startTransmit("need ACK");
+        masterState = WAIT_TRANSMIT_DONE;
+      }
+      static long lastAction3 = 0;
+      if (millis() - lastAction3 >= 3000) { // Đợi 2s
+        lastAction3 = millis();
+        Serial.println("state = SEND_LISTEN");
+      }
+      break;
+    case WAIT_TRANSMIT_DONE:
+      if (transmittedFlag) {
+        transmittedFlag = false;
+        radio.finishTransmit();
         masterState = WAIT_LISTEN_ACK;
+      }
+      static long lastAction5 = 0;
+      if (millis() - lastAction5 >= 3000) { // Đợi 2s
+        lastAction5 = millis();
+        Serial.println("state = WAIT_TRANSMIT_DONE");
       }
       break;
     case WAIT_LISTEN_ACK:
       //receivedFlag = true;
-      static long lastAction4 = 0;
-
-      receivedFlag = true;
-      msg = Recive();
-      if(millis() - lastAction4 >= 3000) {
-        lastAction4 = millis();
-        Serial.println("Waiting for ACK...");
-        Serial.println("Received: " + msg);
+      static unsigned long ackWaitStart = 0;
+      static bool waitingForAck = false;
+      if (!waitingForAck) {
+        ackWaitStart = millis();
+        waitingForAck = true;
+        
       }
-      static long lastAction3 = 0;
-      if (msg == "ACK") {
-        Serial.println("ACK received");
-        ackReceived = true;
-        masterState = ACK_RECEIVED;
-      } 
-      else if (millis() - lastAction3 >= 1000) {
-        lastAction3 = millis();
-        transmittedFlag = true;
-        //masterState = SEND_MAIN;
+      if (receivedFlag) {
+        receivedFlag = false;
+        
+        String ack = Recive();
+        if(ack!="NONE1"){
+          Serial.println("Data received: " + ack);
+        }
+        else{
+          static long lastAction4 = 0;
+          if (millis() - lastAction4 >= 4000) { // Đợi 2s
+            lastAction4 = millis();
+            Serial.println("Data received: NONE2");
+          }
+          
+        } 
+        Serial.println("ACK: " + ack);
+        if (ack == "ACK") {
+          Serial.println("[TX] Received ACK!");
+          ackReceived = true;
+          retryCount = 0;
+          masterState = ACK_RECEIVED;
+          waitingForAck = false;
+          break;
+        }
+      }           
+      // Nếu quá thời gian chờ ACK
+      if (millis() - ackWaitStart > 2000) {
+        Serial.println("[TX] No ACK, retrying...");
+        retryCount++;
+        if (retryCount < 5) {
+          masterState = SEND_LISTEN;
+          transmittedFlag = true;
+        } else {
+          Serial.println("[TX] Failed to get ACK after 5 tries.");
+          //masterState = SEND_MAIN;
+          retryCount = 0;
+        }
+        waitingForAck = false;
+      }
+      static long lastAction6 = 0;
+      if (millis() - lastAction6 >= 3000) { // Đợi 2s
+        lastAction6 = millis();
+        Serial.println("state = WAIT_LISTEN_ACK");
       }
       break;
+  
     case ACK_RECEIVED:
       strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
       strip.show();
+      static long lastAction7 = 0;
+      if (millis() - lastAction7 >= 3000) { // Đợi 2s
+        lastAction7 = millis();
+        Serial.println("state = ACK_RECEIVED");
+      }
       // Gửi lại dữ liệu
       break;
   }
