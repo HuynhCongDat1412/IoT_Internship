@@ -1,10 +1,17 @@
-# Hướng Dẫn Dự Án ESP32-S3-DevKitC-1
+# Hướng dẫn ESP32-S3-DevKitC-1
 
-## NHIỆM VỤ
-Dự án này yêu cầu nạp code cho kit vi điều khiển ESP32-S3-DevKitC-1 để thực hiện các nhiệm vụ sau:
+## 1. Giới thiệu
+
+### Task
 - Sử dụng RGB LED tích hợp trên kit.
 - Sử dụng module OLED để hiển thị chữ.
-- Sử dụng module SX1280 để giao tiếp truyền nhận dữ liệu không dây bằng công nghệ LoRa.
+- Sử dụng module SX1280 để giao tiếp
+truyền nhận dữ liệu không dây bằng công nghệ LoRa.
+
+### Công cụ PlatformIO
+1. [Cách tải PlatformIO](https://www.youtube.com/watch?v=1hKQPLwo6-8&ab_channel=GreenTechnology)
+2. [Cách tải thư viện có sẵn](https://www.youtube.com/watch?v=unft_WOXkiI&ab_channel=GreenTechnology)
+3. Cách build, nạp code
 
 ## BÁO CÁO
 

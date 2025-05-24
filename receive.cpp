@@ -15,18 +15,15 @@ const int output_power = 2;
 const int preamble_length = 20;
 // Khởi tạo cho các tham số RF
 uint32_t count = 0; // Biến đếm gửi tin nhắn
-
 #define LED_PIN 48
 #define NUM_LEDS 1
-int transmissionState = RADIOLIB_ERR_NONE;
+int transmissionState = RADIOLIB_ERR_NONE;  //trạng thái truyền/ nhận tin nhắn
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
-
-
 // flag to indicate that a packet was received
 volatile bool receivedFlag = false;
 volatile bool transmittedFlag = false;
-volatile bool checkFlag= false;
 static bool mainFlag = false;
+static bool acktransmitFlag = false;
 // this function is called when a complete packet
 // is received by the module
 // IMPORTANT: this function MUST be 'void' type
@@ -35,31 +32,23 @@ static bool mainFlag = false;
   ICACHE_RAM_ATTR
 #endif
 
-void setFlag(void) {
-  // we got a packet, set the flag
-  receivedFlag = true;
-  checkFlag = true;
-  // if(millis() - lastAction2 >= 3000) {
-  //   lastAction2 = millis();
-  //}
-}
-
-
 // Khởi tạo màn hình OLED (I2C), SDA = 7, SCL = 15
 SSD1306Wire display(0x3C, 7, 15);
-
+void setFlag(void) {
+  receivedFlag = true;
+}
 String Msg = ""; // Lưu tin nhắn trước đó
 String lastMsg = ""; // Lưu tin nhắn trước đó
-static bool acktransmitFlag = false;
 
+void SendData(String data);
 void setup() {
   Serial.begin(115200);
   delay(2000);
 
   //------------------------Khoi tao RF
   SPI.begin(36, 37, 35);
-  // int state = radio.begin();
-  int state = radio.begin(2450.0, 1625.0, 7, 5, 0x12, 2, 20);
+
+  int state = radio.begin(2450.0, 1625.0, 7, 5, 0x12, 2, 20);  // cấu hình thông số RF
   if (state == RADIOLIB_ERR_NONE) {
     Serial.println(F("success!"));
   } else {
@@ -82,13 +71,12 @@ void setup() {
   }
 
   Serial.println(F("All settings succesfully changed!"));
-
   //-----------------------------------------------------------khoi tao led
   display.init();
   display.clear();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);   
-  strip.setPixelColor(0, strip.Color(0, 0, 0)); // LED xanh
+  strip.setPixelColor(0, strip.Color(0, 0, 0));
   strip.show(); 
 }
 
@@ -110,8 +98,7 @@ void monitor(int State) {
   Serial.println(sync_word, HEX);
 }
 
-void showOled(String str) {
-  
+void showOled(String str) {  
     display.clear();
     // Hiển thị thông số RF ở dòng đầu tiên
     String rfInfo = "F:" + String(carrier_frequency, 1) + "MHz ";
@@ -127,12 +114,6 @@ void showOled(String str) {
     display.drawString(0, 48, "FreqErr: " + String(radio.getFrequencyError(), 1) + " Hz");
     display.display();
 }
-
-
-
-
-void SendData(String data);
-
 String Recive(){
   String msg;int len = 0;
   if(receivedFlag==1) {
@@ -144,8 +125,7 @@ String Recive(){
         Serial.println("Data received: " + msg);
         strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
         strip.show();
-        showOled(msg);
-        
+        showOled(msg);        
         }        
         else{ 
           Serial.println("Data received: NONE" + msg);
@@ -158,13 +138,12 @@ String Recive(){
         Serial.println(F("CRC error!"));
     } else {
       // some other error occurred
-      // Serial.print(F("failed, code 3 "));
-      // Serial.println(state);
+      Serial.print(F("failed, code "));
+      Serial.println(state);
     }
-
-    return msg;
+    return msg; // trả về tin nhắn đã nhận
   }
-  return "";
+  return ""; // nếu không có tin nhắn nào được nhận, trả về chuỗi rỗng
 }
 
 void SendData(String data) {
@@ -200,7 +179,7 @@ void loop() {
     Msg = Recive();
     if (Msg == " Hello")
       {
-        mainFlag = true;
+        mainFlag = true; //Nếu đã nhận được tin nhắn main, chuyển sang chế độ gửi "ACK"
       }
   }
   if (mainFlag){

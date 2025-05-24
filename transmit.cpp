@@ -39,7 +39,6 @@ int state = RADIOLIB_ERR_NONE;
 // flag to indicate that a packet was sent
 volatile bool receivedFlag = false;
 volatile bool transmittedFlag = false;
-bool ackreceiveFlag = false;
 void SendData(String data);
 // this function is called when a complete packet
 // is transmitted by the module
@@ -125,15 +124,15 @@ String Recive(){
         Serial.println(F("CRC error!"));
     } else {
       // some other error occurred
-      // Serial.print(F("failed, code 3 "));
-      // Serial.println(state);
+      Serial.print(F("failed, code "));
+      Serial.println(state);
     }
     // put module back to listen mode
     radio.startReceive();
     return msg;
   }
   return "NONE1";
-}
+} //không sử dụng ở phía master, chỉ sử dụng ở phía slave
 
 void SendData(String data) {
   if(transmittedFlag) {
@@ -185,9 +184,8 @@ void setup() {
 
   // set the function that will be called
   // when packet transmission is finished
-    //radio.setPacketReceivedAction(setRFlag);
-  radio.setPacketSentAction(setFlag);
-
+  //radio.setPacketReceivedAction(setRFlag); //nếu cùng để với hàm dưới sẽ bị lỗi
+  radio.setPacketSentAction(setFlag); 
   Serial.print(F("[SX1280] Sending first packet ... "));
   checksettings();
   // set bandwidth to 203.125 kHz
@@ -196,18 +194,6 @@ void setup() {
 
 void loop() {
   static long lastAction = 0;
-  if (receivedFlag) {
-    Serial.println("setFlag called!");
-    Serial.println("state = " + String(masterState));
-  }
-  if(transmittedFlag) {
-    static long lastAction2 = 0;
-    if (millis() - lastAction2 >= 3000) { // Đợi 2s
-      lastAction2 = millis();
-      Serial.println("transmittedFlag called!");
-      Serial.println("state = " + String(masterState));
-    }
-  }
   static String mainMsg = " Hello";
   static int retryCount = 0;
   switch (masterState) {
@@ -220,14 +206,8 @@ void loop() {
         radio.startTransmit(mainMsg);
         Serial.println("Sending main message: " + mainMsg);
       }
-      // if (millis() - lastAction1 >= 500 && transmittedFlag) { // Đợi 2s
-      //   lastAction1 = millis();
-      //   Serial.println("Sending main message: " + mainMsg);
-      //   SendData(mainMsg + String(count++));
-      // }
-      
       static long lastAction2 = 0;
-      if (millis() - lastAction2 >= 1500 && transmittedFlag) { // Đợi 2s
+      if (millis() - lastAction2 >= 1500 && transmittedFlag) {
         lastAction2 = millis();
         masterState = WAIT_LISTEN_ACK;
         acktransmitFLag = false;
@@ -237,14 +217,65 @@ void loop() {
       //Serial.println("Sending main message: " + mainMsg);
       strip.setPixelColor(0, strip.Color(255, 0, 0)); // LED đỏ
       strip.show();
+      //chỉ để check lỗi
       static long lastAction8 = 0;
-      if (millis() - lastAction8 >= 3000) { // Đợi 2s
+      if (millis() - lastAction8 >= 3000) {
         lastAction8 = millis();
         Serial.println("state = SEND_MAIN");
         Serial.println("receivedFlag = " + String(receivedFlag));
         Serial.println("transmittedFlag = " + String(transmittedFlag));
       }
       break;
+    
+    case WAIT_LISTEN_ACK:
+        static long lastAction6 = 0;
+        if (millis() - lastAction6 >= 3000) { // Đợi 2s
+          lastAction6 = millis();
+          Serial.println("state = WAIT_LISTEN_ACK");
+        }
+        static String str;
+        radio.finishTransmit();
+        state = radio.receive(str);
+        if (state == RADIOLIB_ERR_NONE) {
+          // packet was successfully received
+          Serial.println(F("success!"));
+          // print the data of the packet
+          Serial.print(F("[SX1280] Data:\t\t"));
+          Serial.println(str);
+        } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
+          // timeout occurred while waiting for a packet
+          Serial.println(F("timeout!"));
+
+        } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
+          // packet was received, but is malformed
+          Serial.println(F("CRC error!"));
+
+        } else {
+          // some other error occurred
+          Serial.print(F("failed, code "));
+          Serial.println(state);
+        }
+        if (str == "ACK") {
+          Serial.println("[TX] Received ACK!");
+          ackReceived = true;
+          retryCount = 0;
+          masterState = ACK_RECEIVED;
+          break;
+        }       
+          
+      break;
+  
+    case ACK_RECEIVED:
+      strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
+      strip.show();
+      static long lastAction7 = 0;
+      if (millis() - lastAction7 >= 3000) { // Đợi 2s
+        lastAction7 = millis();
+        Serial.println("state = ACK_RECEIVED");
+      }
+      // Gửi lại dữ liệu
+      break;
+    //mấy case cũ đừng quan tâm
     case SEND_LISTEN:
       Serial.println("SEND_LISTEN");
       if(transmittedFlag){
@@ -272,81 +303,6 @@ void loop() {
         lastAction5 = millis();
         Serial.println("state = WAIT_TRANSMIT_DONE");
       }
-      break;
-    case WAIT_LISTEN_ACK:
-        static long lastAction6 = 0;
-        if (millis() - lastAction6 >= 3000) { // Đợi 2s
-          lastAction6 = millis();
-          Serial.println("state = WAIT_LISTEN_ACK");
-        }
-        //Serial.println("receivedFlag = "+String(receivedFlag));
-        //Serial.println("transmitFlag = "+String(transmittedFlag));
-        if(!ackreceiveFlag){
-          ackreceiveFlag = true;
-          Serial.println("Listening for ACK...");
-        }
-        static String str;
-        radio.finishTransmit();
-        state = radio.receive(str);
-        if (state == RADIOLIB_ERR_NONE) {
-          // packet was successfully received
-          Serial.println(F("success!"));
-
-          // print the data of the packet
-          Serial.print(F("[SX1280] Data:\t\t"));
-          Serial.println(str);
-
-          // print the RSSI (Received Signal Strength Indicator)
-          // of the last received packet
-          Serial.print(F("[SX1280] RSSI:\t\t"));
-          Serial.print(radio.getRSSI());
-          Serial.println(F(" dBm"));
-
-          // print the SNR (Signal-to-Noise Ratio)
-          // of the last received packet
-          Serial.print(F("[SX1280] SNR:\t\t"));
-          Serial.print(radio.getSNR());
-          Serial.println(F(" dB"));
-
-          // print the Frequency Error
-          // of the last received packet
-          Serial.print(F("[SX1280] Frequency Error:\t"));
-          Serial.print(radio.getFrequencyError());
-          Serial.println(F(" Hz"));
-
-        } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
-          // timeout occurred while waiting for a packet
-          Serial.println(F("timeout!"));
-
-        } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
-          // packet was received, but is malformed
-          Serial.println(F("CRC error!"));
-
-        } else {
-          // some other error occurred
-          Serial.print(F("failed, code "));
-          Serial.println(state);
-
-        }
-        if (str == "ACK") {
-          Serial.println("[TX] Received ACK!");
-          ackReceived = true;
-          retryCount = 0;
-          masterState = ACK_RECEIVED;
-          break;
-        }       
-          
-      break;
-  
-    case ACK_RECEIVED:
-      strip.setPixelColor(0, strip.Color(0, 255, 0)); // LED xanh
-      strip.show();
-      static long lastAction7 = 0;
-      if (millis() - lastAction7 >= 3000) { // Đợi 2s
-        lastAction7 = millis();
-        Serial.println("state = ACK_RECEIVED");
-      }
-      // Gửi lại dữ liệu
       break;
   }
 }
