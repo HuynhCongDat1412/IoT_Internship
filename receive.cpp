@@ -173,8 +173,6 @@ void SendData(String data) {
 }
 
 void loop() {
-  static long lastAction = 0;
-
   if(!mainFlag){
     Msg = Recive();
     if (Msg == " Hello")
