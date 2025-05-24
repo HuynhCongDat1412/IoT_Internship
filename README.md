@@ -317,4 +317,4 @@ Chương trình được chia thành các trạng thái chính sử dụng `swit
 - Tiến hành gửi tin nhắn `mainMsg` 1 lần (*Nếu bên nhận chưa đọc được thì ấn nút boot lại*)
 - Gửi xong thực hiện hoàn tất quá trình gửi bằng `radio.finishTransmit();`. Sau đó chuyển qua việc nhận ngay lập tức bằng `radio.receive(str);`.
 - Nếu tin nhắn nhận được bằng `ACK` thì bật led xanh
-- Hoàn tất quá Task.
+- Hoàn tất Task.
